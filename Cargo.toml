@@ -1,0 +1,17 @@
+[package]
+name = "fluent-serde"
+description = "Serializer implementations for FluentValue and FluentArgs"
+repository = "https://github.com/chitoyuu/fluent-serde"
+documentation = "https://docs.rs/fluent-serde"
+authors = ["Chitose Yuuzaki <chitoyuu@potatoes.gay>"]
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+edition = "2018"
+readme = "README.md"
+keywords = ["fluent", "serde"]
+categories = ["internationalization"]
+
+[dependencies]
+fluent = "0.16.0"
+serde = "1.0"
+thiserror = "1.0"
