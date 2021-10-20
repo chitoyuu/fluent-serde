@@ -1,26 +1,49 @@
+//! Serializer for [`FluentValue`].
+
 use std::borrow::Cow;
 
 use fluent::types::{FluentNumber, FluentNumberOptions};
 use fluent::FluentValue;
-use serde::ser::{
-    SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
-    SerializeTupleStruct, SerializeTupleVariant,
-};
 use serde::Serializer;
-use thiserror::Error;
 
+use super::unsupported::Unsupported;
+use super::Error;
+
+/// Serialize into a [`FluentValue`]. The result is returned as [`Serializer::Ok`].
+///
+/// The supported types are:
+///
+/// - Strings.
+/// - Booleans, with `1.0` for `true` and `0.0` for `false`.
+/// - Byte slices that can be decoded as valid UTF-8 strings.
+/// - Numbers, with potentially lossy conversion to [`f64`].
+/// - Unit structs and variants, encoded as strings.
+/// - [`Option`]s and newtypes of other supported types.
+///
+/// See also [`ArgsSerializer`](crate::ser::ArgsSerializer).
+///
+/// # Example
+///
+/// ```rust
+/// use std::borrow::Cow;
+///
+/// use fluent::FluentValue;
+/// use fluent_serde::ser::ValueSerializer;
+/// use serde::Serialize;
+///
+/// let ser = ValueSerializer::new();
+/// let value = "foo".serialize(ser).unwrap();
+/// assert_eq!(FluentValue::String(Cow::Owned("foo".into())), value);
+/// ```
+#[derive(Default)]
 pub struct ValueSerializer {
-    value: Option<FluentValue<'static>>,
+    _private: (),
 }
 
 impl ValueSerializer {
-    fn set_value(&mut self, value: FluentValue<'static>) -> Result<(), Error> {
-        if self.value.is_some() {
-            Err(Error::AlreadyUsed)
-        } else {
-            self.value = Some(value);
-            Ok(())
-        }
+    /// Creates a new [`ValueSerializer`].
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 
@@ -33,27 +56,27 @@ macro_rules! impl_cast_num {
     ) => {
         $(
             fn $f (self, v: $t) -> Result<Self::Ok, Self::Error> {
-                self.set_value(FluentValue::Number(FluentNumber::new(v as f64, FluentNumberOptions::default())))
+                Ok(FluentValue::Number(FluentNumber::new(v as f64, FluentNumberOptions::default())))
             }
         )*
     };
 }
 
-impl<'a> Serializer for &'a mut ValueSerializer {
-    type Ok = ();
+impl Serializer for ValueSerializer {
+    type Ok = FluentValue<'static>;
     type Error = Error;
 
-    type SerializeMap = Unsupported;
-    type SerializeSeq = Unsupported;
-    type SerializeTuple = Unsupported;
-    type SerializeTupleStruct = Unsupported;
-    type SerializeTupleVariant = Unsupported;
-    type SerializeStruct = Unsupported;
-    type SerializeStructVariant = Unsupported;
+    type SerializeMap = Unsupported<Self::Ok>;
+    type SerializeSeq = Unsupported<Self::Ok>;
+    type SerializeTuple = Unsupported<Self::Ok>;
+    type SerializeTupleStruct = Unsupported<Self::Ok>;
+    type SerializeTupleVariant = Unsupported<Self::Ok>;
+    type SerializeStruct = Unsupported<Self::Ok>;
+    type SerializeStructVariant = Unsupported<Self::Ok>;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         let num = if v { 1.0 } else { 0.0 };
-        self.set_value(FluentValue::Number(FluentNumber::new(
+        Ok(FluentValue::Number(FluentNumber::new(
             num,
             FluentNumberOptions::default(),
         )))
@@ -79,7 +102,7 @@ impl<'a> Serializer for &'a mut ValueSerializer {
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        self.set_value(FluentValue::String(Cow::Owned(v.to_string())))
+        Ok(FluentValue::String(Cow::Owned(v.to_string())))
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
@@ -88,15 +111,15 @@ impl<'a> Serializer for &'a mut ValueSerializer {
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        self.set_value(FluentValue::None)
+        Ok(FluentValue::None)
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        self.set_value(FluentValue::None)
+        Ok(FluentValue::None)
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
-        self.set_value(FluentValue::String(Cow::Borrowed(name)))
+        Ok(FluentValue::String(Cow::Borrowed(name)))
     }
 
     fn serialize_unit_variant(
@@ -105,7 +128,7 @@ impl<'a> Serializer for &'a mut ValueSerializer {
         _variant_index: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        self.set_value(FluentValue::String(Cow::Borrowed(variant)))
+        Ok(FluentValue::String(Cow::Borrowed(variant)))
     }
 
     fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
@@ -185,154 +208,5 @@ impl<'a> Serializer for &'a mut ValueSerializer {
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
         Err(Error::UnsupportedType)
-    }
-}
-
-pub enum Unsupported {}
-
-impl SerializeMap for Unsupported {
-    type Ok = ();
-    type Error = Error;
-
-    fn serialize_key<T: ?Sized>(&mut self, _key: &T) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn serialize_value<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-impl SerializeSeq for Unsupported {
-    type Ok = ();
-    type Error = Error;
-
-    fn serialize_element<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-impl SerializeTuple for Unsupported {
-    type Ok = ();
-    type Error = Error;
-
-    fn serialize_element<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-impl SerializeTupleStruct for Unsupported {
-    type Ok = ();
-    type Error = Error;
-
-    fn serialize_field<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-impl SerializeTupleVariant for Unsupported {
-    type Ok = ();
-    type Error = Error;
-
-    fn serialize_field<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-impl SerializeStruct for Unsupported {
-    type Ok = ();
-    type Error = Error;
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        _key: &'static str,
-        _value: &T,
-    ) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-impl SerializeStructVariant for Unsupported {
-    type Ok = ();
-    type Error = Error;
-    fn serialize_field<T: ?Sized>(
-        &mut self,
-        _key: &'static str,
-        _value: &T,
-    ) -> Result<(), Self::Error>
-    where
-        T: serde::Serialize,
-    {
-        unreachable!()
-    }
-
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        unreachable!()
-    }
-}
-
-#[derive(Debug, Error)]
-#[non_exhaustive]
-pub enum Error {
-    #[error("this type is unsupported")]
-    UnsupportedType,
-    #[error("this serializer is already used")]
-    AlreadyUsed,
-    #[error("input bytes do not form a valid UTF-8 encoded string")]
-    NonUtf8Bytes,
-    #[error("{0}")]
-    Custom(String),
-}
-
-impl serde::ser::Error for Error {
-    fn custom<T>(msg: T) -> Self
-    where
-        T: std::fmt::Display,
-    {
-        Error::Custom(msg.to_string())
     }
 }
